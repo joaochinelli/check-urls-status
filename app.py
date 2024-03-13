@@ -1,22 +1,27 @@
-import csv, grequests
+import csv, requests, time, os
 
-list_itens_ok = []
-list_itens_error = []
+def add_item_in_new_file(dir_name_file, item, headerFile):
+  # Verifica se o arquivo existe
+  if os.path.isfile(dir_name_file):
+    param = 'a'
+  else:
+    param = 'w'
 
-def create_csv_file(dir_name_file, listItens):
-  with open(dir_name_file, 'w') as csvfile:
-    for item in listItens:
-      writer = csv.writer(csvfile)
-      writer.writerow(item)
+  with open(dir_name_file, param, newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    if param == 'w':
+      writer.writerow(headerFile)
+    writer.writerow(item)
     csvfile.close()
 
-def file_csv(dir_file, base_url):
+def file_csv(dir_file, base_url, separator):
   rows = []
   try:
     with open(dir_file, 'r', newline='', encoding='utf-8') as file_csv:
-      reader_csv = csv.reader(file_csv)
-      for row in reader_csv:
-        if row[0] != 'Redirect from':
+      reader_csv = csv.reader(file_csv, delimiter=separator)
+      for index, row in enumerate(reader_csv):
+        #a primeira linha do arquivo é o cabeçalho
+        if index > 0:
           if 'http' not in row[1]:
             row[1] = f"{base_url}{row[1]}"
           rows.append(row)
@@ -28,48 +33,47 @@ def file_csv(dir_file, base_url):
   except Exception as e:
     print(f"Error: {e}")
 
-  return rows
+  return [rows, headerFile]
 
-def divide_blocks(array, tamanho_bloco):
-    return [array[i:i+tamanho_bloco] for i in range(0, len(array), tamanho_bloco)]
+def check_url(listUrls, file_200, file_404):
+  for index, item in enumerate(listUrls[0]):
+    try:
+      # Tentativa de fazer uma solicitação GET
+      headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+      response = requests.get(item[1], headers=headers)
 
-def check_url(listUrls):
-  try:
-    requests = (grequests.get(url[1]) for url in listUrls)
-    response = grequests.map(requests)
+      # Verificar se a solicitação foi bem-sucedida (código de status 200)
+      status_code = response.status_code
 
-    for result in enumerate(response):
-      print(f"Status code: {result[1].status_code} --> {result[1].url}")
-      if result[1].status_code == 200:
-        list_itens_ok.append([result[1].url])
+      # Se a solicitação foi bem-sucedida, imprima o conteúdo da resposta
+      print('Solicitação bem-sucedida!')
+      print(f"Item [{index + 1}] - Status code: {status_code} --> {item[1]}")
+      if status_code == 200:
+        add_item_in_new_file(file_200, item, listUrls[1])
       else:
-        list_itens_error.append([result[1].url])
-
-  except Exception as e:
-        print(f"Error when making the request: {e}")
+        add_item_in_new_file(file_404, item, listUrls[1])
     
-def main(file, base_url, limit):
-  data = file_csv(file, base_url)
+    except requests.exceptions.HTTPError as http_err:
+      print(f'Erro HTTP: {http_err}')
+    except requests.exceptions.RequestException as req_err:
+      print(f'Erro na solicitação: {req_err}')
+    except Exception as e:
+      print(f'Erro inesperado: {e}')
+    
+    print('-----------------------------------------------------------\n\n')
+    time.sleep(0.5)
+    
+def main(file, base_url, separator):
+  data = file_csv(file, base_url, separator)
 
-  if len(data) > limit:
-    blocos = divide_blocks(data, limit)
-  else:
-    blocos = [data]
+  file_200 = file.replace(".csv","_status_code_200.csv")
+  file_404 = file.replace(".csv","_status_code_404.csv")
 
-  for i, bloco in enumerate(blocos):
-    print(f'Block {i + 1}')
-    print('\n')
-    check_url(bloco)
-    print('\n\n\n')
-
-  create_csv_file(file.replace(".csv","_status_code_200"), list_itens_ok)
-  create_csv_file(file.replace(".csv","_status_code_404"), list_itens_error)
+  check_url(data, file_200, file_404)
 
   print(f"Files {file.replace(".csv","_status_code_200")}.csv and {file.replace(".csv","_status_code_404")}.csv created with success")
 
 file = input("Enter the name of the file csv: ")
 base_url = input("Enter the base url: ")
-limit = input("Enter the request limit per block (ex: 200): ")
-
-main(file, base_url, int(limit))
-
+separator = input("Enter with the separator: ")
+main(file, base_url, separator)
